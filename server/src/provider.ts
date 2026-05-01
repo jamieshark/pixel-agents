@@ -46,12 +46,14 @@ export interface HookProvider {
     event: AgentEvent;
   } | null;
 
-  /** Install hook scripts that POST to our server. */
-  installHooks(serverUrl: string, authToken: string): Promise<void>;
+  /** Install hook scripts that POST to our server.
+   *  Optional: providers with workspace-scoped hooks (e.g. Copilot) manage
+   *  installation through their own installer module. */
+  installHooks?(serverUrl: string, authToken: string): Promise<void>;
   /** Remove installed hook scripts. */
-  uninstallHooks(): Promise<void>;
+  uninstallHooks?(): Promise<void>;
   /** Check if hooks are currently installed. */
-  areHooksInstalled(): Promise<boolean>;
+  areHooksInstalled?(): Promise<boolean>;
 
   /** Format tool status for display (e.g., "Read" -> "Reading foo.ts") */
   formatToolStatus(toolName: string, input?: unknown): string;

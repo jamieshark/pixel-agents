@@ -373,11 +373,14 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         // Launch Copilot CLI in a new terminal. Agent creation is handled via hooks
         // (SessionStart → onExternalSessionDetected → adoptExternalSessionFromHook).
         const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        const terminal = vscode.window.createTerminal({
-          name: 'Copilot',
-          cwd: (message.folderPath as string | undefined) ?? workspaceRoot,
-        });
-        terminal.sendText('copilot');
+        const cwd = (message.folderPath as string | undefined) ?? workspaceRoot;
+        const launchCmd = copilotProvider.buildLaunchCommand?.('', cwd ?? '') ?? {
+          command: 'copilot',
+          args: [],
+        };
+        const cmdStr = [launchCmd.command, ...launchCmd.args].join(' ');
+        const terminal = vscode.window.createTerminal({ name: 'Copilot', cwd });
+        terminal.sendText(cmdStr);
         terminal.show();
       } else if (message.type === 'focusAgent') {
         const agent = this.agents.get(message.id);
@@ -454,7 +457,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
             console.log('[Pixel Agents] Copilot hooks disabled by user');
           }
         } else {
-          console.warn('[Pixel Agents] setCopilotHooksEnabled: no workspace folder open');
+          console.warn('[Pixel Agents] setCopilotHooksEnabled: cannot toggle hooks without an open workspace folder');
         }
       } else if (message.type === 'setHooksInfoShown') {
         this.context.globalState.update(GLOBAL_KEY_HOOKS_INFO_SHOWN, true);

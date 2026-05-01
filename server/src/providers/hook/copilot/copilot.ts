@@ -117,17 +117,8 @@ export const copilotProvider: HookProvider = {
   normalizeHookEvent,
 
   // Copilot hooks are workspace-scoped — install/uninstall must be called directly
-  // via copilotHookInstaller with a workspaceCwd argument. These methods throw to
-  // prevent accidental use; callers must use copilotHookInstaller directly.
-  installHooks: (_serverUrl: string, _authToken: string): Promise<void> => {
-    return Promise.reject(new Error('copilotProvider.installHooks: use copilotHookInstaller.installHooks(workspaceCwd) directly'));
-  },
-  uninstallHooks: (): Promise<void> => {
-    return Promise.reject(new Error('copilotProvider.uninstallHooks: use copilotHookInstaller.uninstallHooks(workspaceCwd) directly'));
-  },
-  areHooksInstalled: (): Promise<boolean> => {
-    return Promise.reject(new Error('copilotProvider.areHooksInstalled: use copilotHookInstaller.areHooksInstalled(workspaceCwd) directly'));
-  },
+  // via copilotHookInstaller with a workspaceCwd argument. The HookProvider interface
+  // methods are intentionally omitted here; callers must use copilotHookInstaller directly.
 
   formatToolStatus,
   // All tools except bash are read-only file ops that don't require permission prompts.
