@@ -66,6 +66,9 @@ interface ExtensionMessageState {
   hooksEnabled: boolean;
   setHooksEnabled: (v: boolean) => void;
   hooksInfoShown: boolean;
+  copilotEnabled: boolean;
+  copilotHooksEnabled: boolean;
+  setCopilotHooksEnabled: (v: boolean) => void;
 }
 
 function saveAgentSeats(os: OfficeState): void {
@@ -103,6 +106,8 @@ export function useExtensionMessages(
   const [alwaysShowLabels, setAlwaysShowLabels] = useState(false);
   const [hooksEnabled, setHooksEnabled] = useState(true);
   const [hooksInfoShown, setHooksInfoShown] = useState(true);
+  const [copilotEnabled, setCopilotEnabled] = useState(false);
+  const [copilotHooksEnabled, setCopilotHooksEnabled] = useState(false);
 
   // Track whether initial layout has been loaded (ref to avoid re-render)
   const layoutReadyRef = useRef(false);
@@ -469,6 +474,12 @@ export function useExtensionMessages(
         if (typeof msg.hooksInfoShown === 'boolean') {
           setHooksInfoShown(msg.hooksInfoShown as boolean);
         }
+        if (typeof msg.copilotEnabled === 'boolean') {
+          setCopilotEnabled(msg.copilotEnabled as boolean);
+        }
+        if (typeof msg.copilotHooksEnabled === 'boolean') {
+          setCopilotHooksEnabled(msg.copilotHooksEnabled as boolean);
+        }
         if (Array.isArray(msg.externalAssetDirectories)) {
           setExternalAssetDirectories(msg.externalAssetDirectories as string[]);
         }
@@ -534,5 +545,8 @@ export function useExtensionMessages(
     hooksEnabled,
     setHooksEnabled,
     hooksInfoShown,
+    copilotEnabled,
+    copilotHooksEnabled,
+    setCopilotHooksEnabled,
   };
 }

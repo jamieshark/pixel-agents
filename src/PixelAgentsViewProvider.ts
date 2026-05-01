@@ -9,7 +9,13 @@ import {
   installHooks,
   uninstallHooks,
 } from '../server/src/providers/hook/claude/claudeHookInstaller.js';
-import { claudeProvider, copyHookScript } from '../server/src/providers/index.js';
+import {
+  areHooksInstalled as copilotAreHooksInstalled,
+  copyHookScript as copyCopilotHookScript,
+  installHooks as copilotInstallHooks,
+  uninstallHooks as copilotUninstallHooks,
+} from '../server/src/providers/hook/copilot/copilotHookInstaller.js';
+import { claudeProvider, copilotProvider, copyHookScript } from '../server/src/providers/index.js';
 import { PixelAgentsServer } from '../server/src/server.js';
 import {
   getProjectDirPath,
@@ -39,6 +45,7 @@ import {
 import { readConfig, writeConfig } from './configPersistence.js';
 import {
   GLOBAL_KEY_ALWAYS_SHOW_LABELS,
+  GLOBAL_KEY_COPILOT_HOOKS_ENABLED,
   GLOBAL_KEY_HOOKS_ENABLED,
   GLOBAL_KEY_HOOKS_INFO_SHOWN,
   GLOBAL_KEY_LAST_SEEN_VERSION,
@@ -131,6 +138,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
       () => this.webview,
       claudeProvider,
       this.watchAllSessions,
+      new Map([['copilot', copilotProvider]]),
     );
 
     // Register Claude's team provider (if present on the hook provider) with the file
@@ -142,7 +150,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
     setTeammateRemovalCallback((id) => this.removeTeammate(id, 'team-config'));
 
     this.hookEventHandler.setLifecycleCallbacks({
-      onExternalSessionDetected: (sessionId, transcriptPath, cwd) => {
+      onExternalSessionDetected: (sessionId, transcriptPath, cwd, providerId) => {
         // Workspace filtering: only adopt if in a tracked project dir or Watch All Sessions is ON
         const projectDir = transcriptPath ? path.dirname(transcriptPath) : cwd;
         if (!isTrackedProjectDir(projectDir) && !this.watchAllSessions.current) {
@@ -162,6 +170,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           this.webview,
           this.persistAgents,
           (agent) => this.registerAgentHook(agent),
+          providerId,
         );
       },
       onSessionClear: (agentId, newSessionId, newTranscriptPath) => {
@@ -258,6 +267,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         if (hooksEnabled) {
           installHooks();
           copyHookScript(this.context.extensionPath);
+          copyCopilotHookScript(this.context.extensionPath);
         }
         console.log(`[Pixel Agents] Server: ready on port ${config.port}`);
       })
@@ -359,6 +369,16 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
             this.registerAgentHook(agent);
           }
         }
+      } else if (message.type === 'openCopilot') {
+        // Launch Copilot CLI in a new terminal. Agent creation is handled via hooks
+        // (SessionStart → onExternalSessionDetected → adoptExternalSessionFromHook).
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const terminal = vscode.window.createTerminal({
+          name: 'Copilot',
+          cwd: (message.folderPath as string | undefined) ?? workspaceRoot,
+        });
+        terminal.sendText('copilot');
+        terminal.show();
       } else if (message.type === 'focusAgent') {
         const agent = this.agents.get(message.id);
         if (agent) {
@@ -414,10 +434,27 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         if (enabled) {
           installHooks();
           copyHookScript(this.context.extensionPath);
+          copyCopilotHookScript(this.context.extensionPath);
           console.log('[Pixel Agents] Hooks enabled by user');
         } else {
           uninstallHooks();
           console.log('[Pixel Agents] Hooks disabled by user');
+        }
+      } else if (message.type === 'setCopilotHooksEnabled') {
+        const enabled = message.enabled as boolean;
+        this.context.globalState.update(GLOBAL_KEY_COPILOT_HOOKS_ENABLED, enabled);
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (workspaceRoot) {
+          if (enabled) {
+            copilotInstallHooks(workspaceRoot);
+            copyCopilotHookScript(this.context.extensionPath);
+            console.log('[Pixel Agents] Copilot hooks enabled by user');
+          } else {
+            copilotUninstallHooks(workspaceRoot);
+            console.log('[Pixel Agents] Copilot hooks disabled by user');
+          }
+        } else {
+          console.warn('[Pixel Agents] setCopilotHooksEnabled: no workspace folder open');
         }
       } else if (message.type === 'setHooksInfoShown') {
         this.context.globalState.update(GLOBAL_KEY_HOOKS_INFO_SHOWN, true);
@@ -507,6 +544,16 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           GLOBAL_KEY_HOOKS_INFO_SHOWN,
           false,
         );
+        const copilotHooksEnabled = this.context.globalState.get<boolean>(
+          GLOBAL_KEY_COPILOT_HOOKS_ENABLED,
+          false,
+        );
+        const workspaceRootForCopilot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const copilotEnabled =
+          copilotHooksEnabled &&
+          (workspaceRootForCopilot
+            ? copilotAreHooksInstalled(workspaceRootForCopilot)
+            : false);
         const config = readConfig();
         this.webview?.postMessage({
           type: 'settingsLoaded',
@@ -517,6 +564,8 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           alwaysShowLabels,
           hooksEnabled,
           hooksInfoShown,
+          copilotEnabled,
+          copilotHooksEnabled,
           externalAssetDirectories: config.externalAssetDirectories,
         });
 

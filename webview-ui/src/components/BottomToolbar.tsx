@@ -12,6 +12,7 @@ interface BottomToolbarProps {
   isSettingsOpen: boolean;
   onToggleSettings: () => void;
   workspaceFolders: WorkspaceFolder[];
+  copilotEnabled: boolean;
 }
 
 export function BottomToolbar({
@@ -21,6 +22,7 @@ export function BottomToolbar({
   isSettingsOpen,
   onToggleSettings,
   workspaceFolders,
+  copilotEnabled,
 }: BottomToolbarProps) {
   const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false);
   const [isBypassMenuOpen, setIsBypassMenuOpen] = useState(false);
@@ -103,6 +105,11 @@ export function BottomToolbar({
           <DropdownItem onClick={() => handleBypassSelect(true)}>
             Skip permissions mode <span className="text-2xs text-warning">⚠</span>
           </DropdownItem>
+          {copilotEnabled && (
+            <DropdownItem onClick={() => { setIsBypassMenuOpen(false); vscode.postMessage({ type: 'openCopilot' }); }}>
+              Launch Copilot
+            </DropdownItem>
+          )}
         </Dropdown>
         <Dropdown isOpen={isFolderPickerOpen} className="min-w-128">
           {workspaceFolders.map((folder) => (

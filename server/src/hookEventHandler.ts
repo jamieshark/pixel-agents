@@ -46,6 +46,7 @@ interface SessionLifecycleCallbacks {
     sessionId: string,
     transcriptPath: string | undefined,
     cwd: string,
+    providerId?: string,
   ) => void;
   /** Called when /clear is detected via hooks (SessionEnd reason=clear + SessionStart source=clear). */
   onSessionClear?: (
@@ -88,7 +89,16 @@ export class HookEventHandler {
     private getWebview: () => vscode.Webview | undefined,
     private provider: HookProvider,
     private watchAllSessionsRef?: { current: boolean },
+    private providers?: Map<string, HookProvider>,
   ) {}
+
+  /** Returns the provider for a given provider ID, falling back to the default provider. */
+  private getProvider(providerId?: string): HookProvider {
+    if (providerId && this.providers?.has(providerId)) {
+      return this.providers.get(providerId)!;
+    }
+    return this.provider;
+  }
 
   /** Merged set of tool names that spawn subagents (teammates + within-turn subagents
    *  when a team provider is attached, or the base HookProvider set otherwise). */
@@ -142,7 +152,8 @@ export class HookEventHandler {
     // uses the normalized AgentEvent.kind. Raw `event.*` reads are still allowed in a few
     // places for provider-specific metadata that AgentEvent doesn't capture (transcript_path,
     // cwd for external-session adoption; agent_type for teammate routing).
-    const normalized = this.provider.normalizeHookEvent(event);
+    const provider = this.getProvider(_providerId);
+    const normalized = provider.normalizeHookEvent(event);
     if (!normalized) return; // unknown / uninteresting event -- silently drop
     const normEvent = normalized.event;
     const eventName = event.hook_event_name; // retained for logs only
@@ -263,6 +274,7 @@ export class HookEventHandler {
         pending.sessionId,
         pending.transcriptPath,
         pending.cwd,
+        _providerId,
       );
       // Re-process this event now that the agent exists
       this.handleEvent(_providerId, event);
@@ -408,7 +420,8 @@ export class HookEventHandler {
   ): void {
     const toolName = normEvent.toolName;
     const toolInput = (normEvent.input as Record<string, unknown> | undefined) ?? {};
-    const status = this.provider.formatToolStatus(toolName, toolInput);
+    const agentProvider = this.getProvider(agent.providerId);
+    const status = agentProvider.formatToolStatus(toolName, toolInput);
     const hookToolId = `hook-${Date.now()}`;
 
     // Track for PostToolUse/SubagentStart correlation (always, even if suppressed below).
