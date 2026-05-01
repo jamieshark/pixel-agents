@@ -117,23 +117,21 @@ export const copilotProvider: HookProvider = {
   normalizeHookEvent,
 
   // Copilot hooks are workspace-scoped — install/uninstall must be called directly
-  // via copilotHookInstaller with a workspaceCwd argument. These stubs exist to
-  // satisfy the HookProvider interface; the extension uses the installer directly.
+  // via copilotHookInstaller with a workspaceCwd argument. These methods throw to
+  // prevent accidental use; callers must use copilotHookInstaller directly.
   installHooks: (_serverUrl: string, _authToken: string): Promise<void> => {
-    console.warn('[Pixel Agents] copilotProvider.installHooks: use copilotHookInstaller.installHooks(workspaceCwd) directly');
-    return Promise.resolve();
+    return Promise.reject(new Error('copilotProvider.installHooks: use copilotHookInstaller.installHooks(workspaceCwd) directly'));
   },
   uninstallHooks: (): Promise<void> => {
-    console.warn('[Pixel Agents] copilotProvider.uninstallHooks: use copilotHookInstaller.uninstallHooks(workspaceCwd) directly');
-    return Promise.resolve();
+    return Promise.reject(new Error('copilotProvider.uninstallHooks: use copilotHookInstaller.uninstallHooks(workspaceCwd) directly'));
   },
   areHooksInstalled: (): Promise<boolean> => {
-    return Promise.resolve(false);
+    return Promise.reject(new Error('copilotProvider.areHooksInstalled: use copilotHookInstaller.areHooksInstalled(workspaceCwd) directly'));
   },
 
   formatToolStatus,
   // All tools except bash are read-only file ops that don't require permission prompts.
-  permissionExemptTools: new Set(['view', 'edit', 'create', 'grep', 'glob', 'web_fetch', 'web_search', 'get_file', 'list_files', 'search_code']),
+  permissionExemptTools: new Set(['view', 'grep', 'glob', 'web_fetch', 'web_search', 'get_file', 'list_files', 'search_code']),
   // No subagent characters for Copilot (first implementation)
   subagentToolNames: new Set(),
 

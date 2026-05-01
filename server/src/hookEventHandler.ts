@@ -145,14 +145,14 @@ export class HookEventHandler {
    * @param providerId - Provider that sent the event ('claude', 'codex', etc.)
    * @param event - The hook event payload from the CLI tool
    */
-  handleEvent(_providerId: string, event: HookEvent): void {
+  handleEvent(providerId: string, event: HookEvent): void {
     // ── Provider normalization boundary ───────────────────────────────────────
     // All raw Claude-specific fields (tool_name, tool_input, agent_type, notification_type,
     // reason, source) are extracted by provider.normalizeHookEvent. Downstream dispatch
     // uses the normalized AgentEvent.kind. Raw `event.*` reads are still allowed in a few
     // places for provider-specific metadata that AgentEvent doesn't capture (transcript_path,
     // cwd for external-session adoption; agent_type for teammate routing).
-    const provider = this.getProvider(_providerId);
+    const provider = this.getProvider(providerId);
     const normalized = provider.normalizeHookEvent(event);
     if (!normalized) return; // unknown / uninteresting event -- silently drop
     const normEvent = normalized.event;
@@ -274,10 +274,10 @@ export class HookEventHandler {
         pending.sessionId,
         pending.transcriptPath,
         pending.cwd,
-        _providerId,
+        providerId,
       );
       // Re-process this event now that the agent exists
-      this.handleEvent(_providerId, event);
+      this.handleEvent(providerId, event);
       return;
     }
 
@@ -307,7 +307,7 @@ export class HookEventHandler {
           console.log(
             `[Pixel Agents] Hook: ${eventName} - unknown session ${event.session_id.slice(0, 8)}..., buffering`,
           );
-        this.bufferEvent(_providerId, event);
+        this.bufferEvent(providerId, event);
       }
       return;
     }
