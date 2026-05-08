@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- **GitHub Copilot CLI provider support** — Adds a new hook-based provider for GitHub Copilot CLI. Enable hooks via the Settings panel (**GitHub Copilot CLI Hooks** toggle), which installs `.github/hooks/pixel-agents.json` in your workspace. Use **+ Agent → Launch Copilot** to open a Copilot CLI terminal and watch its character animate in real time. Implements a multi-provider architecture so Claude Code and Copilot CLI can be used side-by-side.
+
 ## v1.3.0
 
 ### Features
