@@ -26,7 +26,7 @@
 
 Pixel Agents turns multi-agent AI systems into something you can actually see and manage. Each agent becomes a character in a pixel art office. They walk around, sit at their desk, and visually reflect what they are doing — typing when writing code, reading when searching files, waiting when it needs your attention.
 
-Right now it works as a VS Code extension with Claude Code. The vision though, is a fully agent-agnostic, platform-agnostic interface for orchestrating any AI agents, deployable anywhere.
+Right now it works as a VS Code extension with Claude Code and GitHub Copilot CLI. The vision though, is a fully agent-agnostic, platform-agnostic interface for orchestrating any AI agents, deployable anywhere.
 
 This is the source code for the free Pixel Agents extension for VS Code — install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=pablodelucca.pixel-agents) or [Open VSX](https://open-vsx.org/extension/pablodelucca/pixel-agents) with the full furniture catalog included.
 
@@ -34,8 +34,9 @@ This is the source code for the free Pixel Agents extension for VS Code — inst
 
 ## Features
 
-- **One agent, one character** — every Claude Code terminal gets its own animated character
+- **One agent, one character** — every Claude Code or GitHub Copilot CLI terminal gets its own animated character
 - **Live activity tracking** — characters animate based on what the agent is actually doing (writing, reading, running commands)
+- **Multi-provider support** — works with Claude Code (via hooks or JSONL polling) and GitHub Copilot CLI (via hooks)
 - **Office layout editor** — design your office with floors, walls, and furniture using a built-in editor
 - **Speech bubbles** — visual indicators when an agent is waiting for input or needs permission
 - **Sound notifications** — optional chime when an agent finishes its turn
@@ -51,7 +52,7 @@ This is the source code for the free Pixel Agents extension for VS Code — inst
 ## Requirements
 
 - VS Code 1.105.0 or later
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and configured
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and configured, **or** [GitHub Copilot CLI](https://githubnext.com/projects/copilot-cli) for Copilot agent support
 - **Platform**: Windows, Linux, and macOS are supported
 
 ## Getting Started
@@ -73,10 +74,20 @@ Then press **F5** in VS Code to launch the Extension Development Host.
 ### Usage
 
 1. Open the **Pixel Agents** panel (it appears in the bottom panel area alongside your terminal)
-2. Click **+ Agent** to spawn a new Claude Code terminal and its character. Right-click for the option to launch with `--dangerously-skip-permissions` (bypasses all tool approval prompts)
-3. Start coding with Claude — watch the character react in real time
+2. Click **+ Agent** to spawn a new Claude Code terminal and its character. Right-click for the option to launch with `--dangerously-skip-permissions` (bypasses all tool approval prompts). Select **Launch Copilot** to open a GitHub Copilot CLI terminal instead.
+3. Start coding with Claude or Copilot — watch the character react in real time
 4. Click a character to select it, then click a seat to reassign it
 5. Click **Layout** to open the office editor and customize your space
+
+#### GitHub Copilot CLI Setup
+
+To use Pixel Agents with GitHub Copilot CLI, you need to enable the hook integration:
+
+1. Open the Pixel Agents **Settings** panel (gear icon)
+2. Toggle **GitHub Copilot CLI Hooks** on — this installs a hooks config at `.github/hooks/pixel-agents.json` in your workspace
+3. Click **+ Agent → Launch Copilot** to open a Copilot CLI terminal
+
+Hooks are workspace-scoped. Commit `.github/hooks/pixel-agents.json` to share the setup with your team, or add it to `.gitignore` to keep it local.
 
 ## Layout Editor
 
@@ -104,7 +115,14 @@ Characters are based on the amazing work of [JIK-A-4, Metro City](https://jik-a-
 
 ## How It Works
 
-Pixel Agents watches Claude Code's JSONL transcript files to track what each agent is doing. When an agent uses a tool (like writing a file or running a command), the extension detects it and updates the character's animation accordingly. No modifications to Claude Code are needed — it's purely observational.
+Pixel Agents uses two complementary approaches to track what agents are doing:
+
+- **Hooks (preferred)** — when Claude Code or Copilot CLI hooks are installed, session lifecycle, tool activity, permissions, and sub-agent events are delivered instantly to a lightweight local HTTP server. This gives sub-second status updates with no polling overhead.
+- **JSONL polling (fallback, Claude only)** — when hooks are unavailable, the extension watches Claude Code's JSONL transcript files to track what each agent is doing. When an agent uses a tool (like writing a file or running a command), the extension detects it and updates the character's animation accordingly. No modifications to Claude Code are needed — it's purely observational.
+
+### GitHub Copilot CLI integration
+
+Copilot hooks are workspace-scoped and stored at `.github/hooks/pixel-agents.json`. When hooks are enabled, Pixel Agents subscribes to `SessionStart`, `SessionEnd`, `Stop`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, and related events. A small Node script (`copilot-hook.js`) is installed to `~/.pixel-agents/hooks/` and called by Copilot for each event, forwarding the payload to the local hook server over HTTP.
 
 The webview runs a lightweight game loop with canvas rendering, BFS pathfinding, and a character state machine (idle → walk → type/read). Everything is pixel-perfect at integer zoom levels.
 

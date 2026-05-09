@@ -59,13 +59,15 @@ Vite will print a local URL (typically `http://localhost:5173`) where the mocked
 
 ### Project Structure
 
-| Directory     | Description                                                     |
-| ------------- | --------------------------------------------------------------- |
-| `src/`        | Extension backend -- Node.js, VS Code API                       |
-| `server/`     | Standalone HTTP server, hook installer, and test suite (Vitest) |
-| `webview-ui/` | React + TypeScript frontend (separate Vite project)             |
-| `scripts/`    | Asset extraction and generation tooling                         |
-| `assets/`     | Bundled sprites, catalog, and default layout                    |
+| Directory                               | Description                                                     |
+| --------------------------------------- | --------------------------------------------------------------- |
+| `src/`                                  | Extension backend -- Node.js, VS Code API                       |
+| `server/`                               | Standalone HTTP server, hook installer, and test suite (Vitest) |
+| `server/src/providers/hook/claude/`     | Claude Code hook provider (JSONL polling + hooks)               |
+| `server/src/providers/hook/copilot/`    | GitHub Copilot CLI hook provider                                |
+| `webview-ui/`                           | React + TypeScript frontend (separate Vite project)             |
+| `scripts/`                              | Asset extraction and generation tooling                         |
+| `assets/`                               | Bundled sprites, catalog, and default layout                    |
 
 ## Code Guidelines
 
@@ -109,7 +111,7 @@ npm run test:server
 npm run test:webview
 ```
 
-Server tests cover the HTTP server, hook event routing, hook installer, and the hook script (integration test spawning a real Node process). They run after build since `claude-hook.test.ts` needs the compiled hook script at `dist/hooks/claude-hook.js`.
+Server tests cover the HTTP server, hook event routing, hook installer, and the hook script (integration test spawning a real Node process). They run after build since `claude-hook.test.ts` and `copilot-hook.test.ts` need the compiled hook scripts at `dist/hooks/`.
 
 ## End-to-End Tests
 
