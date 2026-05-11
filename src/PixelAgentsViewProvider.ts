@@ -9,12 +9,6 @@ import {
   installHooks,
   uninstallHooks,
 } from '../server/src/providers/hook/claude/claudeHookInstaller.js';
-import {
-  areHooksInstalled as copilotAreHooksInstalled,
-  copyHookScript as copyCopilotHookScript,
-  installHooks as copilotInstallHooks,
-  uninstallHooks as copilotUninstallHooks,
-} from '../server/src/providers/hook/copilot/copilotHookInstaller.js';
 import { claudeProvider, copilotProvider, copyHookScript } from '../server/src/providers/index.js';
 import { PixelAgentsServer } from '../server/src/server.js';
 import {
@@ -45,7 +39,6 @@ import {
 import { readConfig, writeConfig } from './configPersistence.js';
 import {
   GLOBAL_KEY_ALWAYS_SHOW_LABELS,
-  GLOBAL_KEY_COPILOT_HOOKS_ENABLED,
   GLOBAL_KEY_HOOKS_ENABLED,
   GLOBAL_KEY_HOOKS_INFO_SHOWN,
   GLOBAL_KEY_LAST_SEEN_VERSION,
@@ -66,6 +59,7 @@ import {
   setTeamProvider,
   startExternalSessionScanning,
   startStaleExternalAgentCheck,
+  trackProjectDir,
 } from './fileWatcher.js';
 import type { LayoutWatcher } from './layoutPersistence.js';
 import { readLayoutFromFile, watchLayoutFile, writeLayoutToFile } from './layoutPersistence.js';
@@ -99,6 +93,9 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
   // Hooks enabled state (mutable ref for passing to scanners)
   hooksEnabled = { current: true };
   globalDismissedFiles = new Set<string>();
+
+  // Pending terminals for hooks-only providers (Copilot): keyed by CWD
+  pendingCopilotTerminals = new Map<string, vscode.Terminal>();
 
   // Bundled default layout (loaded from assets/default-layout.json)
   defaultLayout: Record<string, unknown> | null = null;
@@ -171,6 +168,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           this.persistAgents,
           (agent) => this.registerAgentHook(agent),
           providerId,
+          this.pendingCopilotTerminals,
         );
       },
       onSessionClear: (agentId, newSessionId, newTranscriptPath) => {
@@ -267,7 +265,6 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         if (hooksEnabled) {
           installHooks();
           copyHookScript(this.context.extensionPath);
-          copyCopilotHookScript(this.context.extensionPath);
         }
         console.log(`[Pixel Agents] Server: ready on port ${config.port}`);
       })
@@ -370,8 +367,8 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           }
         }
       } else if (message.type === 'openCopilot') {
-        // Launch Copilot CLI in a new terminal. Agent creation is handled via hooks
-        // (SessionStart → onExternalSessionDetected → adoptExternalSessionFromHook).
+        // Launch Copilot CLI in a new terminal. Agent creation happens immediately;
+        // a poller discovers the events.jsonl file once Copilot starts writing it.
         const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         const cwd = (message.folderPath as string | undefined) ?? workspaceRoot;
         const launchCmd = copilotProvider.buildLaunchCommand?.('', cwd ?? '') ?? {
@@ -382,6 +379,11 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         const terminal = vscode.window.createTerminal({ name: 'Copilot', cwd });
         terminal.sendText(cmdStr);
         terminal.show();
+        // Register workspace CWD so scanCopilotSessions can match it
+        if (cwd) {
+          trackProjectDir(cwd);
+          this.pendingCopilotTerminals.set(cwd, terminal);
+        }
       } else if (message.type === 'focusAgent') {
         const agent = this.agents.get(message.id);
         if (agent) {
@@ -437,27 +439,10 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         if (enabled) {
           installHooks();
           copyHookScript(this.context.extensionPath);
-          copyCopilotHookScript(this.context.extensionPath);
           console.log('[Pixel Agents] Hooks enabled by user');
         } else {
           uninstallHooks();
           console.log('[Pixel Agents] Hooks disabled by user');
-        }
-      } else if (message.type === 'setCopilotHooksEnabled') {
-        const enabled = message.enabled as boolean;
-        this.context.globalState.update(GLOBAL_KEY_COPILOT_HOOKS_ENABLED, enabled);
-        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        if (workspaceRoot) {
-          if (enabled) {
-            copilotInstallHooks(workspaceRoot);
-            copyCopilotHookScript(this.context.extensionPath);
-            console.log('[Pixel Agents] Copilot hooks enabled by user');
-          } else {
-            copilotUninstallHooks(workspaceRoot);
-            console.log('[Pixel Agents] Copilot hooks disabled by user');
-          }
-        } else {
-          console.warn('[Pixel Agents] setCopilotHooksEnabled: cannot toggle hooks without an open workspace folder');
         }
       } else if (message.type === 'setHooksInfoShown') {
         this.context.globalState.update(GLOBAL_KEY_HOOKS_INFO_SHOWN, true);
@@ -547,16 +532,6 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           GLOBAL_KEY_HOOKS_INFO_SHOWN,
           false,
         );
-        const copilotHooksEnabled = this.context.globalState.get<boolean>(
-          GLOBAL_KEY_COPILOT_HOOKS_ENABLED,
-          false,
-        );
-        const workspaceRootForCopilot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        const copilotEnabled =
-          copilotHooksEnabled &&
-          (workspaceRootForCopilot
-            ? copilotAreHooksInstalled(workspaceRootForCopilot)
-            : false);
         const config = readConfig();
         this.webview?.postMessage({
           type: 'settingsLoaded',
@@ -567,8 +542,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           alwaysShowLabels,
           hooksEnabled,
           hooksInfoShown,
-          copilotEnabled,
-          copilotHooksEnabled,
+          copilotEnabled: true,
           externalAssetDirectories: config.externalAssetDirectories,
         });
 
@@ -620,6 +594,8 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
             this.persistAgents,
             this.watchAllSessions,
             this.hooksEnabled,
+            (agent) => this.registerAgentHook(agent),
+            this.pendingCopilotTerminals,
           );
 
           // In multi-root workspaces, also scan project dirs for all other folders

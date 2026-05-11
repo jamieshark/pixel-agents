@@ -45,19 +45,6 @@ function buildHooks() {
       ),
       name: 'claude-hook',
     },
-    {
-      entry: path.join(
-        __dirname,
-        'server',
-        'src',
-        'providers',
-        'hook',
-        'copilot',
-        'hooks',
-        'copilot-hook.ts',
-      ),
-      name: 'copilot-hook',
-    },
   ];
   for (const hook of hooks) {
     if (!fs.existsSync(hook.entry)) continue;

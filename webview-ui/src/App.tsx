@@ -72,8 +72,6 @@ function App() {
     setHooksEnabled,
     hooksInfoShown,
     copilotEnabled,
-    copilotHooksEnabled,
-    setCopilotHooksEnabled,
   } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty);
 
   // Show migration notice once layout reset is detected
@@ -364,12 +362,6 @@ function App() {
           const newVal = !hooksEnabled;
           setHooksEnabled(newVal);
           vscode.postMessage({ type: 'setHooksEnabled', enabled: newVal });
-        }}
-        copilotHooksEnabled={copilotHooksEnabled}
-        onToggleCopilotHooksEnabled={() => {
-          const newVal = !copilotHooksEnabled;
-          setCopilotHooksEnabled(newVal);
-          vscode.postMessage({ type: 'setCopilotHooksEnabled', enabled: newVal });
         }}
       />
 

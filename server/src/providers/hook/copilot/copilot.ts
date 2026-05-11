@@ -1,3 +1,4 @@
+import * as os from 'os';
 import * as path from 'path';
 
 import {
@@ -126,9 +127,11 @@ export const copilotProvider: HookProvider = {
   // No subagent characters for Copilot (first implementation)
   subagentToolNames: new Set(),
 
-  // Copilot is hooks-only — no JSONL transcript files to parse
+  // Copilot sessions live in ~/.copilot/session-state/<uuid>/ with workspace.yaml + events.jsonl.
+  // getSessionDirs returns the session-state root; scanning must check workspace.yaml for CWD matching.
   getSessionDirs: (_workspacePath: string): string[] => {
-    return [];
+    const sessionStateDir = path.join(os.homedir(), '.copilot', 'session-state');
+    return [sessionStateDir];
   },
   sessionFilePattern: undefined,
 

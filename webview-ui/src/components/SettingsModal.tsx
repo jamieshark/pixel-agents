@@ -19,8 +19,6 @@ interface SettingsModalProps {
   onToggleWatchAllSessions: () => void;
   hooksEnabled: boolean;
   onToggleHooksEnabled: () => void;
-  copilotHooksEnabled: boolean;
-  onToggleCopilotHooksEnabled: () => void;
 }
 
 export function SettingsModal({
@@ -35,8 +33,6 @@ export function SettingsModal({
   onToggleWatchAllSessions,
   hooksEnabled,
   onToggleHooksEnabled,
-  copilotHooksEnabled,
-  onToggleCopilotHooksEnabled,
 }: SettingsModalProps) {
   const [soundLocal, setSoundLocal] = useState(isSoundEnabled);
 
@@ -111,11 +107,6 @@ export function SettingsModal({
         label="Instant Detection (Hooks)"
         checked={hooksEnabled}
         onChange={onToggleHooksEnabled}
-      />
-      <Checkbox
-        label="GitHub Copilot CLI Hooks"
-        checked={copilotHooksEnabled}
-        onChange={onToggleCopilotHooksEnabled}
       />
       <Checkbox
         label="Always Show Labels"

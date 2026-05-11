@@ -14,4 +14,3 @@
 export { claudeProvider } from './hook/claude/claude.js';
 export { copyHookScript } from './hook/claude/claudeHookInstaller.js';
 export { copilotProvider } from './hook/copilot/copilot.js';
-export { copyHookScript as copyCopilotHookScript } from './hook/copilot/copilotHookInstaller.js';

@@ -39,6 +39,7 @@ import {
 import type { TeamProvider } from '../server/src/teamProvider.js';
 import { removeAgent } from './agentManager.js';
 import { TERMINAL_NAME_PREFIX } from './constants.js';
+import { processCopilotTranscriptLine } from './copilotTranscriptParser.js';
 import { cancelPermissionTimer, cancelWaitingTimer, clearAgentActivity } from './timerManager.js';
 import { processTranscriptLine } from './transcriptParser.js';
 import type { AgentState } from './types.js';
@@ -209,7 +210,10 @@ export function readNewLines(
 
     for (const line of lines) {
       if (!line.trim()) continue;
-      processTranscriptLine(agentId, line, agents, waitingTimers, permissionTimers, webview);
+      const parser = agent.providerId === 'copilot'
+        ? processCopilotTranscriptLine
+        : processTranscriptLine;
+      parser(agentId, line, agents, waitingTimers, permissionTimers, webview);
     }
   } catch (e) {
     // ENOENT is expected for hook-detected agents where the JSONL file hasn't been created yet
@@ -230,6 +234,11 @@ export function isTrackedProjectDir(dir: string): boolean {
     if (path.resolve(tracked).toLowerCase() === resolved) return true;
   }
   return false;
+}
+
+/** Register a directory as tracked (e.g. workspace CWD for hooks-only providers). */
+export function trackProjectDir(dir: string): void {
+  trackedProjectDirs.add(dir);
 }
 
 /**
@@ -832,6 +841,7 @@ export function adoptExternalSessionFromHook(
   persistAgents: () => void,
   onAgentCreated?: (agent: AgentState) => void,
   providerId?: string,
+  pendingTerminals?: Map<string, vscode.Terminal>,
 ): void {
   if (transcriptPath) {
     // File-based provider (Claude, Codex): adopt with JSONL file watching
@@ -878,11 +888,23 @@ export function adoptExternalSessionFromHook(
     // Hooks-only provider (OpenCode, Copilot): no transcript file, all state from hooks
     const id = nextAgentIdRef.current++;
     const folderName = cwd ? path.basename(cwd) : undefined;
+    // Link to pending terminal launched by openCopilot (matched by CWD)
+    let terminalRef: vscode.Terminal | undefined;
+    if (pendingTerminals && cwd) {
+      const resolved = path.resolve(cwd).toLowerCase();
+      for (const [key, terminal] of pendingTerminals) {
+        if (path.resolve(key).toLowerCase() === resolved) {
+          terminalRef = terminal;
+          pendingTerminals.delete(key);
+          break;
+        }
+      }
+    }
     const agent: AgentState = {
       id,
       sessionId,
-      terminalRef: undefined,
-      isExternal: true,
+      terminalRef,
+      isExternal: !terminalRef,
       projectDir: cwd,
       jsonlFile: '',
       fileOffset: 0,
@@ -1005,6 +1027,8 @@ export function startExternalSessionScanning(
   persistAgents: () => void,
   watchAllSessionsRef?: { current: boolean },
   hooksEnabledRef?: { current: boolean },
+  onAgentCreated?: (agent: AgentState) => void,
+  pendingCopilotTerminals?: Map<string, vscode.Terminal>,
 ): ReturnType<typeof setInterval> {
   return setInterval(() => {
     // When hooks are active, SessionStart handles workspace session detection.
@@ -1041,6 +1065,20 @@ export function startExternalSessionScanning(
         persistAgents,
       );
     }
+    // Scan for external Copilot sessions (active sessions in ~/.copilot/session-state/)
+    scanCopilotSessions(
+      nextAgentIdRef,
+      agents,
+      knownJsonlFiles,
+      fileWatchers,
+      pollingTimers,
+      waitingTimers,
+      permissionTimers,
+      webview,
+      persistAgents,
+      pendingCopilotTerminals,
+      onAgentCreated,
+    );
   }, EXTERNAL_SCAN_INTERVAL_MS);
 }
 
@@ -1257,6 +1295,154 @@ function scanGlobalProjectDirs(
         folderName,
       );
     }
+  }
+}
+
+/**
+ * Scan ~/.copilot/session-state/ for active Copilot sessions matching the workspace.
+ * Creates agents with JSONL file watching for sessions that aren't already tracked.
+ */
+function scanCopilotSessions(
+  nextAgentIdRef: { current: number },
+  agents: Map<number, AgentState>,
+  knownJsonlFiles: Set<string>,
+  fileWatchers: Map<number, fs.FSWatcher>,
+  pollingTimers: Map<number, ReturnType<typeof setInterval>>,
+  waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
+  permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
+  webview: vscode.Webview | undefined,
+  persistAgents: () => void,
+  pendingCopilotTerminals?: Map<string, vscode.Terminal>,
+  onAgentCreated?: (agent: AgentState) => void,
+): void {
+  const sessionStateDir = path.join(os.homedir(), '.copilot', 'session-state');
+  let dirs: fs.Dirent[];
+  try {
+    dirs = fs.readdirSync(sessionStateDir, { withFileTypes: true }).filter((d) => d.isDirectory());
+  } catch {
+    return;
+  }
+
+  // Collect workspace folders for matching
+  const workspaceFolders = vscode.workspace.workspaceFolders?.map((f) =>
+    path.resolve(f.uri.fsPath).toLowerCase(),
+  );
+  if (!workspaceFolders || workspaceFolders.length === 0) return;
+
+  // Collect already-tracked Copilot session IDs
+  const trackedSessionIds = new Set<string>();
+  for (const agent of agents.values()) {
+    if (agent.providerId === 'copilot') {
+      trackedSessionIds.add(agent.sessionId);
+    }
+  }
+
+  for (const dir of dirs) {
+    const sessionId = dir.name;
+    if (trackedSessionIds.has(sessionId)) continue;
+
+    const sessionDir = path.join(sessionStateDir, sessionId);
+
+    // Check for lock file (active session indicator)
+    let hasLock = false;
+    try {
+      const entries = fs.readdirSync(sessionDir);
+      hasLock = entries.some((e) => e.startsWith('inuse.') && e.endsWith('.lock'));
+    } catch {
+      continue;
+    }
+    if (!hasLock) continue;
+
+    // Check for events.jsonl
+    const eventsFile = path.join(sessionDir, 'events.jsonl');
+    if (!fs.existsSync(eventsFile)) continue;
+    if (knownJsonlFiles.has(eventsFile)) continue;
+
+    // Read workspace.yaml to get CWD
+    let cwd: string | undefined;
+    try {
+      const yamlContent = fs.readFileSync(path.join(sessionDir, 'workspace.yaml'), 'utf-8');
+      const cwdMatch = yamlContent.match(/^cwd:\s*(.+)$/m);
+      if (cwdMatch) {
+        cwd = cwdMatch[1].trim();
+      }
+    } catch {
+      continue;
+    }
+    if (!cwd) continue;
+
+    // Check if CWD matches any open workspace folder
+    const resolvedCwd = path.resolve(cwd).toLowerCase();
+    if (!workspaceFolders.some((wf) => resolvedCwd === wf)) continue;
+
+    // Create agent with JSONL file watching
+    const id = nextAgentIdRef.current++;
+    const folderName = path.basename(cwd);
+
+    // Link to pending terminal launched by openCopilot (matched by CWD)
+    let terminalRef: vscode.Terminal | undefined;
+    if (pendingCopilotTerminals && cwd) {
+      const resolved = path.resolve(cwd).toLowerCase();
+      for (const [key, terminal] of pendingCopilotTerminals) {
+        if (path.resolve(key).toLowerCase() === resolved) {
+          terminalRef = terminal;
+          pendingCopilotTerminals.delete(key);
+          break;
+        }
+      }
+    }
+
+    const agent: AgentState = {
+      id,
+      sessionId,
+      terminalRef,
+      isExternal: !terminalRef,
+      projectDir: cwd,
+      jsonlFile: eventsFile,
+      fileOffset: 0,
+      lineBuffer: '',
+      activeToolIds: new Set(),
+      activeToolStatuses: new Map(),
+      activeToolNames: new Map(),
+      activeSubagentToolIds: new Map(),
+      activeSubagentToolNames: new Map(),
+      backgroundAgentToolIds: new Set(),
+      isWaiting: false,
+      permissionSent: false,
+      hadToolsInTurn: false,
+      hookDelivered: false,
+      providerId: 'copilot',
+      lastDataAt: Date.now(),
+      linesProcessed: 0,
+      seenUnknownRecordTypes: new Set(),
+      folderName,
+      inputTokens: 0,
+      outputTokens: 0,
+    };
+
+    agents.set(id, agent);
+    knownJsonlFiles.add(eventsFile);
+    persistAgents();
+    console.log(
+      `[Pixel Agents] Scanner: Agent ${id} - detected Copilot session ${sessionId.slice(0, 8)}... (${folderName})`,
+    );
+    webview?.postMessage({ type: 'agentCreated', id, isExternal: !terminalRef, folderName });
+
+    // Start file watching on the events.jsonl
+    startFileWatching(
+      id,
+      eventsFile,
+      agents,
+      fileWatchers,
+      pollingTimers,
+      waitingTimers,
+      permissionTimers,
+      webview,
+    );
+    // Read any existing content
+    readNewLines(id, agents, waitingTimers, permissionTimers, webview);
+
+    onAgentCreated?.(agent);
   }
 }
 
